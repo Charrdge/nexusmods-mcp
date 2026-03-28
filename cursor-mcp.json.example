@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "nexusmods": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "NEXUSMODS_API_KEY=YOUR_KEY",
+        "-e",
+        "NEXUSMODS_APPLICATION_NAME=nexusmods-mcp-local",
+        "-e",
+        "NEXUSMODS_APPLICATION_VERSION=0.1.0",
+        "nexus-mcp:local"
+      ]
+    }
+  }
+}

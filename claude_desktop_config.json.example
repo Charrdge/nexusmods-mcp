@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "nexusmods": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--env-file",
+        "/home/<username>/nexusmods-mcp/.env",
+        "nexus-mcp:local"
+      ]
+    }
+  }
+}
