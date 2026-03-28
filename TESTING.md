@@ -53,7 +53,7 @@ export NEXUSMODS_API_KEY=...
 go run ./cmd/mcp-smoke -bin ./nexusmods-mcp
 ```
 
-Ожидаемый вывод включает `OK initialize`, `OK tools/list contains all 4 tools`, вызовы tools и в конце `ALL_OK`. Для `nexus_search_mods` при сбое GraphQL возможно предупреждение `WARN` (smoke не падает), остальные tool-вызовы должны завершиться без `fatalf`.
+Ожидаемый вывод включает `OK initialize`, `OK tools/list contains all 5 tools`, вызовы tools и в конце `ALL_OK`. Для `nexus_search_mods` при сбое GraphQL возможно предупреждение `WARN` (smoke не падает), остальные tool-вызовы должны завершиться без `fatalf`.
 
 ## Переменные для интеграционных проверок
 
@@ -73,6 +73,7 @@ go run ./cmd/mcp-smoke -bin ./nexusmods-mcp
 | 401 / invalid API key | Ключ в [Account → API](https://www.nexusmods.com/users/myaccount?tab=api) |
 | MCP-клиент не коннектится к Docker | Флаг `-i` у `docker run`, корректный `command`/`args` в настройках клиента |
 | `timeout waiting for jsonrpc` | Логи stderr сервера, не завершился ли процесс с `log.Fatal` |
+| В ответе GraphQL `errors`, `data`: null | Неверный `game_domain` / `mod_id`; для зависимостей см. [docs/MCP.md](docs/MCP.md) (`nexus_get_mod_requirements`) |
 | HTTP-режим недоступен снаружи | `MCP_HTTP_ADDR=0.0.0.0:8080`, порт проброшен; помни про безопасность |
 
 ## Дополнительно

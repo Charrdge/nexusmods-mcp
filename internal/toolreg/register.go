@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -76,6 +77,64 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 			return toolErr(err.Error()), nil, nil
 		}
 		data, err := nx.ModFiles(ctx, args.GameDomain, id)
+		return jsonResult(data, err)
+	})
+
+	type modReqArgs struct {
+		GameDomain         string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
+		ModID              string `json:"mod_id" jsonschema:"Numeric Nexus mod id"`
+		RequirementsOffset string `json:"requirements_offset,omitempty" jsonschema:"Optional offset for required-mods list (default 0)"`
+		RequirementsCount  string `json:"requirements_count,omitempty" jsonschema:"Optional page size 1–50 for required mods (default 20)"`
+		DependentsOffset   string `json:"dependents_offset,omitempty" jsonschema:"Optional offset for mods-requiring-this list (default 0)"`
+		DependentsCount    string `json:"dependents_count,omitempty" jsonschema:"Optional page size 1–50 for dependents (default 20)"`
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_mod_requirements",
+		Description: "Mod dependencies via GraphQL: mods this mod requires (nexusRequirements), mods that require this mod (modsRequiringThisMod), and DLC requirements. Uses game_domain like other tools; resolves internal game id automatically.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modReqArgs) (*mcp.CallToolResult, any, error) {
+		id, err := nexus.ParseInt(args.ModID, "mod_id")
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		parseOff := func(s string) (int, error) {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				return 0, nil
+			}
+			v, err := strconv.Atoi(s)
+			if err != nil || v < 0 {
+				return 0, fmt.Errorf("invalid offset")
+			}
+			return v, nil
+		}
+		parseCnt := func(s string) (int, error) {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				return 0, nil
+			}
+			v, err := strconv.Atoi(s)
+			if err != nil || v < 1 || v > 50 {
+				return 0, fmt.Errorf("invalid count (use 1–50)")
+			}
+			return v, nil
+		}
+		reqOff, err := parseOff(args.RequirementsOffset)
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		reqCnt, err := parseCnt(args.RequirementsCount)
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		depOff, err := parseOff(args.DependentsOffset)
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		depCnt, err := parseCnt(args.DependentsCount)
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		data, err := nx.ModRequirements(ctx, args.GameDomain, id, reqOff, reqCnt, depOff, depCnt)
 		return jsonResult(data, err)
 	})
 }

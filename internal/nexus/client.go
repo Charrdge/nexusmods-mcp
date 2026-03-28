@@ -13,11 +13,21 @@ import (
 	"time"
 )
 
+func pageCountOrDefault(n int) int {
+	if n <= 0 {
+		return 20
+	}
+	if n > 50 {
+		return 50
+	}
+	return n
+}
+
 // Client calls Nexus Mods REST v1 and GraphQL v2 with required headers.
 type Client struct {
-	cfg    Config
-	http   *http.Client
-	ua     string
+	cfg  Config
+	http *http.Client
+	ua   string
 }
 
 // NewClient builds an HTTP client with Nexus authentication headers.
@@ -78,6 +88,32 @@ func (c *Client) Games(ctx context.Context) (json.RawMessage, error) {
 	return data, err
 }
 
+// GameIDForDomain resolves the numeric game id from REST games.json domain_name (e.g. skyrimspecialedition).
+// Nexus GraphQL mod(...) expects this id as gameId, not the domain string.
+func (c *Client) GameIDForDomain(ctx context.Context, domain string) (int64, error) {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return 0, fmt.Errorf("game_domain is required")
+	}
+	data, err := c.Games(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var games []struct {
+		ID         int64  `json:"id"`
+		DomainName string `json:"domain_name"`
+	}
+	if err := json.Unmarshal(data, &games); err != nil {
+		return 0, fmt.Errorf("games.json: %w", err)
+	}
+	for _, g := range games {
+		if strings.EqualFold(g.DomainName, domain) {
+			return g.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown game_domain %q", domain)
+}
+
 // Mod returns mod metadata for a game domain and mod ID.
 func (c *Client) Mod(ctx context.Context, gameDomain string, modID int64) (json.RawMessage, error) {
 	gameDomain = strings.TrimSpace(gameDomain)
@@ -110,9 +146,7 @@ func (c *Client) SearchMods(ctx context.Context, gameDomain, query string, offse
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	if count <= 0 || count > 50 {
-		count = 20
-	}
+	count = pageCountOrDefault(count)
 	if offset < 0 {
 		offset = 0
 	}
@@ -144,6 +178,91 @@ func (c *Client) SearchMods(ctx context.Context, gameDomain, query string, offse
     }
   }
 }`
+	payload := map[string]any{
+		"query":     gqlQuery,
+		"variables": variables,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.GraphQLURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = c.baseHeaders()
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("nexus GraphQL %s: %s", resp.Status, truncate(string(respBody), 800))
+	}
+	return json.RawMessage(respBody), nil
+}
+
+// ModRequirements returns GraphQL mod.modRequirements: mods this one requires (nexusRequirements),
+// mods that require this one (modsRequiringThisMod), and DLC requirements.
+func (c *Client) ModRequirements(ctx context.Context, gameDomain string, modID int64, reqOff, reqCount, depOff, depCount int) (json.RawMessage, error) {
+	gid, err := c.GameIDForDomain(ctx, gameDomain)
+	if err != nil {
+		return nil, err
+	}
+	if reqOff < 0 {
+		reqOff = 0
+	}
+	if depOff < 0 {
+		depOff = 0
+	}
+	reqCount = pageCountOrDefault(reqCount)
+	depCount = pageCountOrDefault(depCount)
+
+	gqlQuery := `query ModRequirements($modId: ID!, $gameId: ID!, $reqOff: Int!, $reqCnt: Int!, $depOff: Int!, $depCnt: Int!) {
+  mod(modId: $modId, gameId: $gameId) {
+    modId
+    name
+    modRequirements {
+      dlcRequirements {
+        notes
+        gameExpansion { id name }
+      }
+      nexusRequirements(offset: $reqOff, count: $reqCnt) {
+        totalCount
+        nodes {
+          modId
+          modName
+          url
+          notes
+          externalRequirement
+        }
+      }
+      modsRequiringThisMod(offset: $depOff, count: $depCnt) {
+        totalCount
+        nodes {
+          modId
+          modName
+          url
+          notes
+          externalRequirement
+        }
+      }
+    }
+  }
+}`
+	variables := map[string]any{
+		"modId":  strconv.FormatInt(modID, 10),
+		"gameId": strconv.FormatInt(gid, 10),
+		"reqOff": reqOff,
+		"reqCnt": reqCount,
+		"depOff": depOff,
+		"depCnt": depCount,
+	}
 	payload := map[string]any{
 		"query":     gqlQuery,
 		"variables": variables,

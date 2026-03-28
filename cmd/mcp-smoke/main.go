@@ -131,13 +131,13 @@ func main() {
 		fatalf("tools/list error: %s", string(listResp["error"]))
 	}
 	toolsBody := []byte(listResp["result"])
-	names := []string{"nexus_games", "nexus_search_mods", "nexus_get_mod", "nexus_list_mod_files"}
+	names := []string{"nexus_games", "nexus_search_mods", "nexus_get_mod", "nexus_list_mod_files", "nexus_get_mod_requirements"}
 	for _, n := range names {
 		if !bytes.Contains(toolsBody, []byte(n)) {
 			fatalf("tools/list missing %q in %s", n, string(toolsBody))
 		}
 	}
-	fmt.Println("OK tools/list contains all 4 tools")
+	fmt.Println("OK tools/list contains all 5 tools")
 
 	// Level 3: tool calls
 	call := func(id float64, name string, args map[string]any) json.RawMessage {
@@ -195,6 +195,30 @@ func main() {
 		fatalf("nexus_list_mod_files: %s", truncate(string(res), 500))
 	}
 	fmt.Println("OK nexus_list_mod_files")
+
+	// Open Animation Replacer - RaySense (dependencies + dependents on Nexus)
+	res = call(7, "nexus_get_mod_requirements", map[string]any{
+		"game_domain":       "skyrimspecialedition",
+		"mod_id":            "175498",
+		"requirements_count": "20",
+		"dependents_count":   "20",
+	})
+	if bytes.Contains(res, []byte(`"isError":true`)) {
+		fatalf("nexus_get_mod_requirements: %s", truncate(string(res), 500))
+	}
+	var toolWrap struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(res, &toolWrap); err != nil || len(toolWrap.Content) == 0 {
+		fatalf("nexus_get_mod_requirements: parse result: %v body=%s", err, truncate(string(res), 400))
+	}
+	inner := toolWrap.Content[0].Text
+	if !bytes.Contains([]byte(inner), []byte(`"nexusRequirements"`)) {
+		fatalf("nexus_get_mod_requirements: expected nexusRequirements in tool text: %s", truncate(inner, 400))
+	}
+	fmt.Println("OK nexus_get_mod_requirements")
 
 	_ = stdin.Close()
 	_, _ = io.Copy(io.Discard, r)

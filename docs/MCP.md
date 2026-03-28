@@ -1,6 +1,6 @@
 # Nexus Mods MCP
 
-Сервер [Model Context Protocol](https://modelcontextprotocol.io/) для [Nexus Mods](https://www.nexusmods.com/): список игр, поиск модов (GraphQL v2), карточка мода и список файлов (REST v1). Реализация на Go: [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) v1.2.0 (см. `go.mod`). Имя и версия сервера в протоколе: `nexusmods-mcp` / `0.1.0` — [`cmd/server/main.go`](../cmd/server/main.go).
+Сервер [Model Context Protocol](https://modelcontextprotocol.io/) для [Nexus Mods](https://www.nexusmods.com/): список игр, поиск модов, требования мода (зависимости / обратные зависимости / DLC) через GraphQL v2, карточка мода и список файлов через REST v1. Реализация на Go: [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) v1.2.0 (см. `go.mod`). Имя и версия сервера в протоколе: `nexusmods-mcp` / `0.1.0` — [`cmd/server/main.go`](../cmd/server/main.go).
 
 Имена и аргументы tools: [`internal/toolreg/register.go`](../internal/toolreg/register.go). HTTP-клиент Nexus: [`internal/nexus/client.go`](../internal/nexus/client.go).
 
@@ -26,7 +26,7 @@ go build -o nexusmods-mcp ./cmd/server
 | `NEXUSMODS_APPLICATION_VERSION` | нет | `0.1.0` | Заголовок `Application-Version` (semver) |
 | `NEXUSMODS_PROTOCOL_VERSION` | нет | `1.5.2` | Заголовок `Protocol-Version` (как у `@nexusmods/nexus-api`) |
 | `NEXUSMODS_REST_BASE` | нет | `https://api.nexusmods.com/v1` | Базовый URL REST v1 |
-| `NEXUSMODS_GRAPHQL_URL` | нет | `https://api.nexusmods.com/v2/graphql` | Endpoint GraphQL (поиск модов) |
+| `NEXUSMODS_GRAPHQL_URL` | нет | `https://api.nexusmods.com/v2/graphql` | GraphQL: поиск модов и `mod.modRequirements` |
 | `MCP_TRANSPORT` | нет | `stdio` | `stdio` или `http` |
 | `MCP_HTTP_ADDR` | нет | `:8080` | Адрес в режиме `http`, например `0.0.0.0:8080` |
 
@@ -35,7 +35,7 @@ go build -o nexusmods-mcp ./cmd/server
 ## Соответствие API Nexus
 
 - **REST v1:** `games.json`, `games/{domain}/mods/{id}.json`, `.../files.json` — заголовки `APIKEY`, `Application-Name`, `Application-Version`, `Protocol-Version`.
-- **GraphQL v2:** поиск по имени мода (`nexus_search_mods`); в REST v1 отдельного текстового поиска нет.
+- **GraphQL v2:** поиск по имени мода (`nexus_search_mods`); требования мода — зависимости на Nexus, обратные зависимости и DLC (`nexus_get_mod_requirements`). В REST v1 отдельного текстового поиска нет.
 
 Соблюдай [Nexus API acceptable use policy](https://help.nexusmods.com/article/114-api-acceptable-use-policy). Не коммить реальные ключи.
 
@@ -86,12 +86,28 @@ go build -o nexusmods-mcp ./cmd/server
 
 Пустой `game_domain` или нечисловой `mod_id` обрабатываются как ошибка tool или API согласно [`internal/nexus/client.go`](../internal/nexus/client.go).
 
+### `nexus_get_mod_requirements`
+
+Зависимости мода на стороне Nexus (GraphQL `mod.modRequirements`). Сервер по `game_domain` находит числовой id игры через `games.json` и передаёт его в GraphQL как `gameId` (доменная строка там не подходит).
+
+| Аргумент MCP | Обязательный | Описание |
+|--------------|--------------|----------|
+| `game_domain` | да | Домен игры |
+| `mod_id` | да | Числовой id мода |
+| `requirements_offset` | нет | Смещение списка **требуемых** модов (`nexusRequirements`); по умолчанию `0` |
+| `requirements_count` | нет | Размер страницы 1–50; по умолчанию `20` |
+| `dependents_offset` | нет | Смещение списка модов, **которые требуют этот мод** (`modsRequiringThisMod`); по умолчанию `0` |
+| `dependents_count` | нет | Размер страницы 1–50; по умолчанию `20` |
+
+В ответе: `nexusRequirements` — что нужно установить до/вместе с модом; `modsRequiringThisMod` — моды, у которых в требованиях указан этот мод; `dlcRequirements` — требуемые DLC. Полный JSON GraphQL возвращается как у API (в т.ч. поле `errors`, если мод не найден).
+
 ## Ограничения и типичные ошибки
 
 - **`NEXUSMODS_API_KEY is required`** — ключ не передан в окружение процесса (Docker / IDE).
 - **401 / отказ API** — неверный или отозванный ключ; проверь ключ в [настройках аккаунта](https://www.nexusmods.com/users/myaccount?tab=api).
 - **`nexus API ...`** — HTTP-статус вне 2xx; тело ответа обрезается в сообщении об ошибке.
-- **`invalid offset` / `invalid count`** — проверь формат и диапазон для `nexus_search_mods`.
+- **`invalid offset` / `invalid count`** — проверь формат и диапазон для `nexus_search_mods` или для `requirements_*` / `dependents_*` в `nexus_get_mod_requirements`.
+- **GraphQL `Mod not found` в JSON** — неверная пара игра/мод или `mod_id`; для GraphQL `mod(...)` нужен числовой id игры — сервер подставляет его по `game_domain` из `games.json`.
 - **Docker без `-i`** — клиент не сможет вести stdio-сессию MCP.
 - **HTTP-режим** — клиент должен поддерживать streamable HTTP; публичный порт без защиты не использовать.
 
