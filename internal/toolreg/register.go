@@ -24,7 +24,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 
 	type searchArgs struct {
 		GameDomain   string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
-		Query        string `json:"query,omitempty" jsonschema:"Optional; wildcard search on mod name (GraphQL). Use with author/category_name or alone."`
+		Query        string `json:"query,omitempty" jsonschema:"Optional; wildcard on stemmed mod name (GraphQL nameStemmed). Use with author/category_name or alone."`
 		Author       string `json:"author,omitempty" jsonschema:"Optional; exact match on author display name (GraphQL ModsFilter)"`
 		CategoryName string `json:"category_name,omitempty" jsonschema:"Optional; exact match on category name (GraphQL ModsFilter)"`
 		Offset       string `json:"offset,omitempty" jsonschema:"Optional result offset (default 0)"`
@@ -32,7 +32,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "nexus_search_mods",
-		Description: "Search mods for a game via GraphQL: optional name wildcard (query), optional exact author and category_name. At least one of query, author, category_name is required.",
+		Description: "Search mods for a game via GraphQL: optional stemmed-name wildcard (query → ModsFilter nameStemmed), optional exact author and category_name. At least one of query, author, category_name is required.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args searchArgs) (*mcp.CallToolResult, any, error) {
 		off := 0
 		if strings.TrimSpace(args.Offset) != "" {

@@ -303,7 +303,7 @@ func (c *Client) RateLimitHeaders(ctx context.Context) (json.RawMessage, error) 
 	return json.RawMessage(raw), err
 }
 
-// SearchMods runs GraphQL `mods` with game domain + optional name wildcard and optional author/categoryName (EQUALS).
+// SearchMods runs GraphQL `mods` with game domain + optional nameStemmed wildcard and optional author/categoryName (EQUALS).
 func (c *Client) SearchMods(ctx context.Context, gameDomain, query, author, categoryName string, offset, count int) (json.RawMessage, error) {
 	gameDomain = strings.TrimSpace(gameDomain)
 	if gameDomain == "" {
@@ -327,7 +327,9 @@ func (c *Client) SearchMods(ctx context.Context, gameDomain, query, author, cate
 	}
 	if query != "" {
 		pattern := "*" + escapeGraphQLWildcard(query) + "*"
-		filter["name"] = []map[string]string{
+		// Nexus ModsFilter: `name` + WILDCARD often returns no hits against current index;
+		// `nameStemmed` is documented for token/wildcard matching (punctuation ignored).
+		filter["nameStemmed"] = []map[string]string{
 			{"value": pattern, "op": "WILDCARD"},
 		}
 	}

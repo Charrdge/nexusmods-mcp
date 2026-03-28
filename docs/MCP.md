@@ -59,12 +59,12 @@ go build -o nexusmods-mcp ./cmd/server
 
 ### `nexus_search_mods`
 
-Поиск модов для игры (GraphQL `mods`). Нужен **хотя бы один** из фильтров: `query` (wildcard по имени), `author` (точное совпадение), `category_name` (точное совпадение).
+Поиск модов для игры (GraphQL `mods`). Нужен **хотя бы один** из фильтров: `query` (wildcard по **stemmed** имени, поле API `nameStemmed` — токены, пунктуация не учитывается), `author` (точное совпадение), `category_name` (точное совпадение).
 
 | Аргумент MCP | Обязательный | Описание |
 |--------------|--------------|----------|
 | `game_domain` | да | Домен игры |
-| `query` | нет* | Wildcard по имени мода |
+| `query` | нет* | Wildcard по stemmed-имени (`nameStemmed` в ModsFilter) |
 | `author` | нет* | Точное совпадение автора |
 | `category_name` | нет* | Точное совпадение названия категории |
 | `offset` | нет | Смещение; по умолчанию `0` |
