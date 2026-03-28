@@ -1,0 +1,14 @@
+# Secrets
+.env
+*.local.env
+
+# Build artifacts
+/nexusmods-mcp
+*.exe
+*.test
+bin/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
