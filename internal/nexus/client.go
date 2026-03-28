@@ -74,6 +74,37 @@ func (c *Client) getJSON(ctx context.Context, rawURL string) (json.RawMessage, i
 	return json.RawMessage(body), resp.StatusCode, nil
 }
 
+// postGraphQL sends a JSON body to the Nexus GraphQL endpoint and returns the raw response bytes.
+func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any) (json.RawMessage, error) {
+	payload := map[string]any{
+		"query":     query,
+		"variables": variables,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.GraphQLURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = c.baseHeaders()
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("nexus GraphQL %s: %s", resp.Status, truncate(string(respBody), 800))
+	}
+	return json.RawMessage(respBody), nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -136,30 +167,179 @@ func (c *Client) ModFiles(ctx context.Context, gameDomain string, modID int64) (
 	return data, err
 }
 
-// SearchMods runs GraphQL `mods` with game domain + wildcard name filter (REST v1 has no text search).
-func (c *Client) SearchMods(ctx context.Context, gameDomain, query string, offset, count int) (json.RawMessage, error) {
+// ModChangelog returns changelog entries for a mod (REST).
+func (c *Client) ModChangelog(ctx context.Context, gameDomain string, modID int64) (json.RawMessage, error) {
 	gameDomain = strings.TrimSpace(gameDomain)
-	query = strings.TrimSpace(query)
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	if query == "" {
-		return nil, fmt.Errorf("query is required")
+	u := fmt.Sprintf("%s/games/%s/mods/%d/changelogs", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// ModFile returns metadata for a single mod file by file_id (REST).
+func (c *Client) ModFile(ctx context.Context, gameDomain string, modID, fileID int64) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	u := fmt.Sprintf("%s/games/%s/mods/%d/files/%d", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID, fileID)
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// Game returns details for one game by domain (REST), including category tree.
+func (c *Client) Game(ctx context.Context, gameDomain string) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	u := fmt.Sprintf("%s/games/%s.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// GameCategories returns only the categories array from GET /games/{domain}.json.
+func (c *Client) GameCategories(ctx context.Context, gameDomain string) (json.RawMessage, error) {
+	data, err := c.Game(ctx, gameDomain)
+	if err != nil {
+		return nil, err
+	}
+	var obj struct {
+		Categories json.RawMessage `json:"categories"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, fmt.Errorf("game json: %w", err)
+	}
+	if obj.Categories == nil {
+		return json.RawMessage(`{"categories":[]}`), nil
+	}
+	wrapped := map[string]json.RawMessage{"categories": obj.Categories}
+	out, err := json.Marshal(wrapped)
+	return json.RawMessage(out), err
+}
+
+// ModsLatestUpdated returns recently updated mods for a game (REST).
+func (c *Client) ModsLatestUpdated(ctx context.Context, gameDomain string) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	u := fmt.Sprintf("%s/games/%s/mods/latest_updated.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// ModsLatestAdded returns recently added mods for a game (REST).
+func (c *Client) ModsLatestAdded(ctx context.Context, gameDomain string) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	u := fmt.Sprintf("%s/games/%s/mods/latest_added.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// ModsTrending returns trending mods for a game (REST).
+func (c *Client) ModsTrending(ctx context.Context, gameDomain string) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	u := fmt.Sprintf("%s/games/%s/mods/trending.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// ModsRecentlyUpdated returns mods updated in a server-cached period: 1d, 1w, or 1m (REST).
+func (c *Client) ModsRecentlyUpdated(ctx context.Context, gameDomain, period string) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	period = strings.TrimSpace(strings.ToLower(period))
+	if period != "1d" && period != "1w" && period != "1m" {
+		return nil, fmt.Errorf("period must be 1d, 1w, or 1m")
+	}
+	u := fmt.Sprintf("%s/games/%s/mods/updated.json?period=%s", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), url.QueryEscape(period))
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// TrackedMods returns mods tracked by the API key owner (REST).
+func (c *Client) TrackedMods(ctx context.Context) (json.RawMessage, error) {
+	u := c.cfg.RESTBaseURL + "/user/tracked_mods.json"
+	data, _, err := c.getJSON(ctx, u)
+	return data, err
+}
+
+// RateLimitHeaders performs a lightweight GET and returns x-rl-* response headers as JSON.
+func (c *Client) RateLimitHeaders(ctx context.Context) (json.RawMessage, error) {
+	u := c.cfg.RESTBaseURL + "/games.json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header = c.baseHeaders()
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("nexus API %s", resp.Status)
+	}
+	out := make(map[string]string)
+	for k, vals := range resp.Header {
+		kl := strings.ToLower(k)
+		if strings.HasPrefix(kl, "x-rl-") && len(vals) > 0 {
+			out[k] = vals[0]
+		}
+	}
+	raw, err := json.Marshal(out)
+	return json.RawMessage(raw), err
+}
+
+// SearchMods runs GraphQL `mods` with game domain + optional name wildcard and optional author/categoryName (EQUALS).
+func (c *Client) SearchMods(ctx context.Context, gameDomain, query, author, categoryName string, offset, count int) (json.RawMessage, error) {
+	gameDomain = strings.TrimSpace(gameDomain)
+	if gameDomain == "" {
+		return nil, fmt.Errorf("game_domain is required")
+	}
+	query = strings.TrimSpace(query)
+	author = strings.TrimSpace(author)
+	categoryName = strings.TrimSpace(categoryName)
+	if query == "" && author == "" && categoryName == "" {
+		return nil, fmt.Errorf("provide query and/or author and/or category_name")
 	}
 	count = pageCountOrDefault(count)
 	if offset < 0 {
 		offset = 0
 	}
-	// Wildcard partial match on mod name (see ModsFilter.name + WILDCARD).
-	pattern := "*" + escapeGraphQLWildcard(query) + "*"
 	filter := map[string]any{
 		"op": "AND",
 		"gameDomainName": []map[string]string{
 			{"value": gameDomain, "op": "EQUALS"},
 		},
-		"name": []map[string]string{
+	}
+	if query != "" {
+		pattern := "*" + escapeGraphQLWildcard(query) + "*"
+		filter["name"] = []map[string]string{
 			{"value": pattern, "op": "WILDCARD"},
-		},
+		}
+	}
+	if author != "" {
+		filter["author"] = []map[string]string{
+			{"value": author, "op": "EQUALS"},
+		}
+	}
+	if categoryName != "" {
+		filter["categoryName"] = []map[string]string{
+			{"value": categoryName, "op": "EQUALS"},
+		}
 	}
 	variables := map[string]any{
 		"filter": filter,
@@ -178,33 +358,7 @@ func (c *Client) SearchMods(ctx context.Context, gameDomain, query string, offse
     }
   }
 }`
-	payload := map[string]any{
-		"query":     gqlQuery,
-		"variables": variables,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.GraphQLURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header = c.baseHeaders()
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("nexus GraphQL %s: %s", resp.Status, truncate(string(respBody), 800))
-	}
-	return json.RawMessage(respBody), nil
+	return c.postGraphQL(ctx, gqlQuery, variables)
 }
 
 // ModRequirements returns GraphQL mod.modRequirements: mods this one requires (nexusRequirements),
@@ -263,33 +417,40 @@ func (c *Client) ModRequirements(ctx context.Context, gameDomain string, modID i
 		"depOff": depOff,
 		"depCnt": depCount,
 	}
-	payload := map[string]any{
-		"query":     gqlQuery,
-		"variables": variables,
-	}
-	body, err := json.Marshal(payload)
+	return c.postGraphQL(ctx, gqlQuery, variables)
+}
+
+// ModGraphQL returns selected GraphQL mod fields including viewer* flags (requires same API key as other calls).
+func (c *Client) ModGraphQL(ctx context.Context, gameDomain string, modID int64) (json.RawMessage, error) {
+	gid, err := c.GameIDForDomain(ctx, gameDomain)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.GraphQLURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	gqlQuery := `query ModGraph($modId: ID!, $gameId: ID!) {
+  mod(modId: $modId, gameId: $gameId) {
+    modId
+    name
+    summary
+    description
+    version
+    updatedAt
+    createdAt
+    downloads
+    endorsements
+    status
+    viewerUpdateAvailable
+    viewerTracked
+    viewerEndorsed
+    viewerDownloaded
+    viewerBlocked
+    viewerIsBlocked
+  }
+}`
+	variables := map[string]any{
+		"modId":  strconv.FormatInt(modID, 10),
+		"gameId": strconv.FormatInt(gid, 10),
 	}
-	req.Header = c.baseHeaders()
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("nexus GraphQL %s: %s", resp.Status, truncate(string(respBody), 800))
-	}
-	return json.RawMessage(respBody), nil
+	return c.postGraphQL(ctx, gqlQuery, variables)
 }
 
 func escapeGraphQLWildcard(s string) string {

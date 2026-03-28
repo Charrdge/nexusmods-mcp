@@ -1,13 +1,13 @@
 # nexusmods-mcp
 
-MCP-сервер на Go для [Nexus Mods](https://www.nexusmods.com/): список игр, поиск модов (GraphQL v2), карточка мода, файлы (REST v1), зависимости и «кто зависит от мода» (GraphQL `mod.modRequirements`).
+MCP-сервер на Go для [Nexus Mods](https://www.nexusmods.com/): REST v1 (игры, мод, файлы, changelog, ленты, отслеживаемые моды, лимиты) и GraphQL v2 (поиск с фильтрами, зависимости мода, расширенная карточка `mod`).
 
 - **stdio** (по умолчанию): `docker run -i` — Cursor, OpenClaw, `mcp-smoke`.
 - **HTTP** (`MCP_TRANSPORT=http`): streamable HTTP для клиентов с поддержкой; см. [docs/MCP.md](docs/MCP.md). Не публикуй порт без защиты.
 
 Код: `cmd/server`, `internal/nexus`, `internal/toolreg`.
 
-**Tools (5):** `nexus_games`, `nexus_search_mods`, `nexus_get_mod`, `nexus_list_mod_files`, `nexus_get_mod_requirements` — см. [docs/MCP.md](docs/MCP.md).
+**Tools (16):** `nexus_games`, `nexus_search_mods`, `nexus_get_mod`, `nexus_get_mod_graphql`, `nexus_list_mod_files`, `nexus_get_mod_file`, `nexus_get_mod_changelog`, `nexus_get_mod_requirements`, `nexus_get_game`, `nexus_game_categories`, `nexus_mods_latest_updated`, `nexus_mods_latest_added`, `nexus_mods_trending`, `nexus_mods_recently_updated`, `nexus_get_tracked_mods`, `nexus_get_rate_limits` — контракт в [docs/MCP.md](docs/MCP.md).
 
 ## Быстрый старт
 

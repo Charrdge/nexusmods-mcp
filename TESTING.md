@@ -53,7 +53,7 @@ export NEXUSMODS_API_KEY=...
 go run ./cmd/mcp-smoke -bin ./nexusmods-mcp
 ```
 
-Ожидаемый вывод включает `OK initialize`, `OK tools/list contains all 5 tools`, вызовы tools и в конце `ALL_OK`. Для `nexus_search_mods` при сбое GraphQL возможно предупреждение `WARN` (smoke не падает), остальные tool-вызовы должны завершиться без `fatalf`.
+Ожидаемый вывод включает `OK initialize`, строку `OK tools/list contains all 16 tools`, вызовы tools и в конце `ALL_OK`. Для `nexus_search_mods` при сбое GraphQL возможно предупреждение `WARN` (smoke не падает только на этом шаге); остальные tool-вызовы должны завершиться без `fatalf`.
 
 ## Переменные для интеграционных проверок
 

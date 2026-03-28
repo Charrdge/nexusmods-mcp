@@ -26,7 +26,7 @@ docker run --rm -i nexus-mcp:local
 go run ./cmd/mcp-smoke -docker -env-file "/absolute/path/to/.env"
 ```
 
-Ожидание: цепочка `OK ...` (в т.ч. `OK tools/list contains all 5 tools`, вызов `nexus_get_mod_requirements`) и финальный `ALL_OK`.
+Ожидание: цепочка `OK ...` (в т.ч. `OK tools/list contains all 16 tools`, вызовы включая `nexus_get_mod_requirements` и новые REST/GraphQL tools) и финальный `ALL_OK`.
 
 Альтернатива без Docker:
 

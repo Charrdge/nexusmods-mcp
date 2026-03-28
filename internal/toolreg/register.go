@@ -23,14 +23,16 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	})
 
 	type searchArgs struct {
-		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
-		Query      string `json:"query" jsonschema:"Free-text search; matched against mod names (GraphQL wildcard search)"`
-		Offset     string `json:"offset,omitempty" jsonschema:"Optional result offset (default 0)"`
-		Count      string `json:"count,omitempty" jsonschema:"Optional page size 1–50 (default 20)"`
+		GameDomain   string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
+		Query        string `json:"query,omitempty" jsonschema:"Optional; wildcard search on mod name (GraphQL). Use with author/category_name or alone."`
+		Author       string `json:"author,omitempty" jsonschema:"Optional; exact match on author display name (GraphQL ModsFilter)"`
+		CategoryName string `json:"category_name,omitempty" jsonschema:"Optional; exact match on category name (GraphQL ModsFilter)"`
+		Offset       string `json:"offset,omitempty" jsonschema:"Optional result offset (default 0)"`
+		Count        string `json:"count,omitempty" jsonschema:"Optional page size 1–50 (default 20)"`
 	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "nexus_search_mods",
-		Description: "Search mods by name for a game (uses Nexus GraphQL; REST v1 has no text search).",
+		Description: "Search mods for a game via GraphQL: optional name wildcard (query), optional exact author and category_name. At least one of query, author, category_name is required.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args searchArgs) (*mcp.CallToolResult, any, error) {
 		off := 0
 		if strings.TrimSpace(args.Offset) != "" {
@@ -48,7 +50,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 			}
 			cnt = v
 		}
-		data, err := nx.SearchMods(ctx, args.GameDomain, args.Query, off, cnt)
+		data, err := nx.SearchMods(ctx, args.GameDomain, args.Query, args.Author, args.CategoryName, off, cnt)
 		return jsonResult(data, err)
 	})
 
@@ -135,6 +137,118 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 			return toolErr(err.Error()), nil, nil
 		}
 		data, err := nx.ModRequirements(ctx, args.GameDomain, id, reqOff, reqCnt, depOff, depCnt)
+		return jsonResult(data, err)
+	})
+
+	type fileArgs struct {
+		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain"`
+		ModID      string `json:"mod_id" jsonschema:"Numeric Nexus mod id"`
+		FileID     string `json:"file_id" jsonschema:"Numeric Nexus file id (from list mod files)"`
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_mod_changelog",
+		Description: "Changelog history for a mod (REST).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modArgs) (*mcp.CallToolResult, any, error) {
+		id, err := nexus.ParseInt(args.ModID, "mod_id")
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		data, err := nx.ModChangelog(ctx, args.GameDomain, id)
+		return jsonResult(data, err)
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_mod_file",
+		Description: "Metadata for one mod file by file_id (REST); avoids downloading full files list when you already know file_id.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args fileArgs) (*mcp.CallToolResult, any, error) {
+		mid, err := nexus.ParseInt(args.ModID, "mod_id")
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		fid, err := nexus.ParseInt(args.FileID, "file_id")
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		data, err := nx.ModFile(ctx, args.GameDomain, mid, fid)
+		return jsonResult(data, err)
+	})
+
+	type gameDomainArg struct {
+		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_game",
+		Description: "Single game record by domain (REST), including category tree and stats.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		data, err := nx.Game(ctx, args.GameDomain)
+		return jsonResult(data, err)
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_game_categories",
+		Description: "Category tree for a game (subset of nexus_get_game): {\"categories\":[...]}.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		data, err := nx.GameCategories(ctx, args.GameDomain)
+		return jsonResult(data, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_mods_latest_updated",
+		Description: "Latest updated mods for a game (REST feed).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		data, err := nx.ModsLatestUpdated(ctx, args.GameDomain)
+		return jsonResult(data, err)
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_mods_latest_added",
+		Description: "Latest added mods for a game (REST feed).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		data, err := nx.ModsLatestAdded(ctx, args.GameDomain)
+		return jsonResult(data, err)
+	})
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_mods_trending",
+		Description: "Trending mods for a game (REST feed).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		data, err := nx.ModsTrending(ctx, args.GameDomain)
+		return jsonResult(data, err)
+	})
+
+	type recentArgs struct {
+		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain"`
+		Period     string `json:"period" jsonschema:"One of: 1d, 1w, 1m (server-cached update windows)"`
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_mods_recently_updated",
+		Description: "Mods updated in a cached time window for a game (REST): period 1d, 1w, or 1m.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args recentArgs) (*mcp.CallToolResult, any, error) {
+		data, err := nx.ModsRecentlyUpdated(ctx, args.GameDomain, args.Period)
+		return jsonResult(data, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_tracked_mods",
+		Description: "Mods tracked by the Nexus account tied to this API key (REST). Read-only.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		data, err := nx.TrackedMods(ctx)
+		return jsonResult(data, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_mod_graphql",
+		Description: "Mod details via GraphQL (viewerUpdateAvailable, viewerTracked, description, dates, etc.). Uses numeric game id resolved from game_domain.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modArgs) (*mcp.CallToolResult, any, error) {
+		id, err := nexus.ParseInt(args.ModID, "mod_id")
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		data, err := nx.ModGraphQL(ctx, args.GameDomain, id)
+		return jsonResult(data, err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_get_rate_limits",
+		Description: "Current API rate-limit headers (x-rl-*) from a lightweight GET /games.json. For debugging; respect Nexus acceptable use policy.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		data, err := nx.RateLimitHeaders(ctx)
 		return jsonResult(data, err)
 	})
 }

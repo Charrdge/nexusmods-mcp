@@ -131,13 +131,18 @@ func main() {
 		fatalf("tools/list error: %s", string(listResp["error"]))
 	}
 	toolsBody := []byte(listResp["result"])
-	names := []string{"nexus_games", "nexus_search_mods", "nexus_get_mod", "nexus_list_mod_files", "nexus_get_mod_requirements"}
+	names := []string{
+		"nexus_games", "nexus_search_mods", "nexus_get_mod", "nexus_list_mod_files", "nexus_get_mod_requirements",
+		"nexus_get_mod_changelog", "nexus_get_mod_file", "nexus_get_game", "nexus_game_categories",
+		"nexus_mods_latest_updated", "nexus_mods_latest_added", "nexus_mods_trending", "nexus_mods_recently_updated",
+		"nexus_get_tracked_mods", "nexus_get_mod_graphql", "nexus_get_rate_limits",
+	}
 	for _, n := range names {
 		if !bytes.Contains(toolsBody, []byte(n)) {
 			fatalf("tools/list missing %q in %s", n, string(toolsBody))
 		}
 	}
-	fmt.Println("OK tools/list contains all 5 tools")
+	fmt.Printf("OK tools/list contains all %d tools\n", len(names))
 
 	// Level 3: tool calls
 	call := func(id float64, name string, args map[string]any) json.RawMessage {
@@ -198,8 +203,8 @@ func main() {
 
 	// Open Animation Replacer - RaySense (dependencies + dependents on Nexus)
 	res = call(7, "nexus_get_mod_requirements", map[string]any{
-		"game_domain":       "skyrimspecialedition",
-		"mod_id":            "175498",
+		"game_domain":        "skyrimspecialedition",
+		"mod_id":             "175498",
 		"requirements_count": "20",
 		"dependents_count":   "20",
 	})
@@ -219,6 +224,41 @@ func main() {
 		fatalf("nexus_get_mod_requirements: expected nexusRequirements in tool text: %s", truncate(inner, 400))
 	}
 	fmt.Println("OK nexus_get_mod_requirements")
+
+	id := float64(8)
+	mustToolOK := func(name string, args map[string]any) {
+		res := call(id, name, args)
+		id++
+		if bytes.Contains(res, []byte(`"isError":true`)) {
+			fatalf("%s: %s", name, truncate(string(res), 500))
+		}
+		fmt.Println("OK", name)
+	}
+
+	mustToolOK("nexus_get_mod_changelog", map[string]any{
+		"game_domain": "skyrimspecialedition",
+		"mod_id":      "62852",
+	})
+	mustToolOK("nexus_get_mod_file", map[string]any{
+		"game_domain": "skyrimspecialedition",
+		"mod_id":      "62852",
+		"file_id":     "260592",
+	})
+	mustToolOK("nexus_get_game", map[string]any{"game_domain": "skyrimspecialedition"})
+	mustToolOK("nexus_game_categories", map[string]any{"game_domain": "skyrimspecialedition"})
+	mustToolOK("nexus_mods_latest_updated", map[string]any{"game_domain": "skyrimspecialedition"})
+	mustToolOK("nexus_mods_latest_added", map[string]any{"game_domain": "skyrimspecialedition"})
+	mustToolOK("nexus_mods_trending", map[string]any{"game_domain": "skyrimspecialedition"})
+	mustToolOK("nexus_mods_recently_updated", map[string]any{
+		"game_domain": "skyrimspecialedition",
+		"period":      "1d",
+	})
+	mustToolOK("nexus_get_tracked_mods", map[string]any{})
+	mustToolOK("nexus_get_mod_graphql", map[string]any{
+		"game_domain": "skyrimspecialedition",
+		"mod_id":      "62852",
+	})
+	mustToolOK("nexus_get_rate_limits", map[string]any{})
 
 	_ = stdin.Close()
 	_, _ = io.Copy(io.Discard, r)
