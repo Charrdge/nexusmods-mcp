@@ -1,5 +1,7 @@
 # nexusmods-mcp
 
+[![SafeSkill 92/100](https://img.shields.io/badge/SafeSkill-92%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/charrdge-nexusmods-mcp)
+
 MCP-сервер на Go для [Nexus Mods](https://www.nexusmods.com/): REST v1 (игры, мод, файлы, changelog, ленты, отслеживаемые моды, лимиты) и GraphQL v2 (поиск с фильтрами, зависимости мода, расширенная карточка `mod`).
 
 - **stdio** (по умолчанию): `docker run -i` — Cursor, OpenClaw, `mcp-smoke`.
