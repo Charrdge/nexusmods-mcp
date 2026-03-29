@@ -215,7 +215,9 @@ Changelog мода (REST).
 - Без ключа в JSON: `--env-file` и **абсолютный** путь к `.env`, который видит Docker — [`cursor-mcp-envfile.example.json`](../cursor-mcp-envfile.example.json).
 - После обновления репозитория снова выполни `docker build -t nexus-mcp:local .` (если в конфиге этот образ) или укажи путь к свежесобранному бинарю; затем Reload Window или переподключи MCP.
 
-Пути в WSL: например `/home/<user>/nexusmods-mcp/.env`. На Windows с Docker Desktop проверь тот же `docker run ... --env-file`, что использует Cursor.
+Пути в WSL: например `/home/<user>/nexusmods-mcp/.env`.
+
+**Cursor на Windows, проект в WSL, Docker Desktop:** если MCP запускает **Windows**-клиент `docker`, путь вида `/home/...` **не существует** для него — отсюда `open ... The system cannot find the path specified`. Варианты: (1) путь к `.env` через UNC к дистрибутиву WSL, например `\\wsl.localhost\<Distro>\home\<user>\nexusmods-mcp\.env` (имя дистрибутива — `wsl -l -v`); (2) открыть папку в Cursor через **Remote — WSL**, чтобы `command: docker` выполнялся в Linux и принимал `/home/...`; (3) задать переменные в блоке `env` у сервера в настройках MCP вместо `--env-file` (секреты останутся в конфиге IDE); (4) хранить `.env` в каталоге на стороне **Windows** (например рядом с клоном в `C:\...`) и в настройках MCP указать **абсолютный** путь к этому файлу для `--env-file`.
 
 ### Claude Desktop
 
