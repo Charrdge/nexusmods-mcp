@@ -25,7 +25,7 @@ docker run --rm -i \
 
 Флаг `-i` нужен, чтобы клиент подключился к stdin MCP.
 
-Шаблон переменных: [.env.example](.env.example). Ключ API: [Account → API](https://www.nexusmods.com/users/myaccount?tab=api).
+Шаблон переменных: [.env.example](.env.example). Ключ API: [Account → API](https://www.nexusmods.com/users/myaccount?tab=api). Ответы API по умолчанию кешируются в памяти 24h (`NEXUSMODS_CACHE_TTL`) — подробности в [docs/MCP.md](docs/MCP.md).
 
 ## Документация
 

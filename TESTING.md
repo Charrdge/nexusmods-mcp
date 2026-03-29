@@ -10,6 +10,8 @@ go vet ./...
 go test ./... -count=1
 ```
 
+Пакет `internal/nexus` включает тесты in-memory кеша и проверки, что повторные вызовы не бьют в HTTP-мок (`client_cache_test.go`, `apicache_test.go`).
+
 Опционально с гонками:
 
 ```bash
@@ -60,7 +62,7 @@ go run ./cmd/mcp-smoke -bin ./nexusmods-mcp
 | Переменная | Назначение |
 |------------|------------|
 | `NEXUSMODS_API_KEY` | Обязательна для любых запросов к Nexus |
-| Остальные `NEXUSMODS_*` | См. [docs/MCP.md](docs/MCP.md) |
+| Остальные `NEXUSMODS_*` | См. [docs/MCP.md](docs/MCP.md) (в т.ч. `NEXUSMODS_CACHE_TTL`) |
 
 Для `mcp-smoke -docker` все нужные переменные задаются через `--env-file`.
 

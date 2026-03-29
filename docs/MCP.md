@@ -27,10 +27,25 @@ go build -o nexusmods-mcp ./cmd/server
 | `NEXUSMODS_PROTOCOL_VERSION` | нет | `1.5.2` | Заголовок `Protocol-Version` (как у `@nexusmods/nexus-api`) |
 | `NEXUSMODS_REST_BASE` | нет | `https://api.nexusmods.com/v1` | Базовый URL REST v1 |
 | `NEXUSMODS_GRAPHQL_URL` | нет | `https://api.nexusmods.com/v2/graphql` | GraphQL: поиск, `mod`, `mod.modRequirements` |
+| `NEXUSMODS_CACHE_TTL` | нет | `24h` | In-memory кеш ответов Nexus (`time.ParseDuration`: `24h`, `30m`, …). Пусто = 24h. `0`, `off`, `false`, `disable` — без кеша |
 | `MCP_TRANSPORT` | нет | `stdio` | `stdio` или `http` |
 | `MCP_HTTP_ADDR` | нет | `:8080` | Адрес в режиме `http`, например `0.0.0.0:8080` |
 
 Логика загрузки: [`internal/nexus/config.go`](../internal/nexus/config.go).
+
+## Кеширование ответов API
+
+По умолчанию ответы Nexus кешируются **в памяти процесса** с TTL из `NEXUSMODS_CACHE_TTL` (по умолчанию **24 часа**). Это снижает число запросов к API и нагрузку на лимиты; данные могут отставать от сайта до истечения TTL.
+
+Реализация: [`internal/nexus/apicache.go`](../internal/nexus/apicache.go), обвязка в [`internal/nexus/client.go`](../internal/nexus/client.go).
+
+| Кешируется (TTL) | Не кешируется |
+|------------------|---------------|
+| `Games` (`nexus_games`), карточка мода, список файлов, один файл, changelog, игра/категории, ленты (`latest_*`, `trending`, `recently_updated` с `period`), GraphQL `mod.modRequirements` (`nexus_get_mod_requirements`) | Поиск `nexus_search_mods`, `nexus_get_mod_graphql` (поля viewer\*), `nexus_get_tracked_mods`, `nexus_get_rate_limits` |
+
+Отключить кеш: `NEXUSMODS_CACHE_TTL=0` или `off` / `false` / `disable` (см. [`config.go`](../internal/nexus/config.go)). У нескольких процессов (несколько инстансов HTTP-транспорта) у каждого свой кеш.
+
+Автотесты без сети: `go test ./internal/nexus/ -count=1` (в т.ч. [`client_cache_test.go`](../internal/nexus/client_cache_test.go)).
 
 ## Соответствие API Nexus
 

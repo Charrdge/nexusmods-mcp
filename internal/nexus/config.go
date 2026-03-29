@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -21,6 +22,8 @@ type Config struct {
 	ProtocolVersion    string
 	RESTBaseURL        string
 	GraphQLURL         string
+	// CacheTTL is the time-to-live for in-memory response caching. Zero disables caching.
+	CacheTTL time.Duration
 }
 
 // ConfigFromEnv loads configuration from environment variables.
@@ -50,6 +53,10 @@ func ConfigFromEnv() (Config, error) {
 	if gql == "" {
 		gql = defaultGraphQLURL
 	}
+	cacheTTL, err := parseCacheTTL(os.Getenv("NEXUSMODS_CACHE_TTL"))
+	if err != nil {
+		return Config{}, err
+	}
 	return Config{
 		APIKey:             key,
 		ApplicationName:    app,
@@ -57,5 +64,25 @@ func ConfigFromEnv() (Config, error) {
 		ProtocolVersion:    proto,
 		RESTBaseURL:        rest,
 		GraphQLURL:         gql,
+		CacheTTL:           cacheTTL,
 	}, nil
+}
+
+func parseCacheTTL(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 24 * time.Hour, nil
+	}
+	low := strings.ToLower(raw)
+	if low == "0" || low == "off" || low == "false" || low == "disable" || low == "disabled" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("NEXUSMODS_CACHE_TTL: %w", err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("NEXUSMODS_CACHE_TTL must be >= 0")
+	}
+	return d, nil
 }

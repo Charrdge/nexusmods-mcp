@@ -25,21 +25,45 @@ func pageCountOrDefault(n int) int {
 
 // Client calls Nexus Mods REST v1 and GraphQL v2 with required headers.
 type Client struct {
-	cfg  Config
-	http *http.Client
-	ua   string
+	cfg   Config
+	http  *http.Client
+	ua    string
+	cache *apiCache
 }
 
 // NewClient builds an HTTP client with Nexus authentication headers.
 func NewClient(cfg Config) *Client {
 	ua := fmt.Sprintf("%s/%s (nexusmods-mcp)", cfg.ApplicationName, cfg.ApplicationVersion)
-	return &Client{
+	cl := &Client{
 		cfg: cfg,
 		http: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 		ua: ua,
 	}
+	if cfg.CacheTTL > 0 {
+		cl.cache = newAPICache(cfg.CacheTTL)
+	}
+	return cl
+}
+
+func domainCacheKey(gameDomain string) string {
+	return strings.ToLower(strings.TrimSpace(gameDomain))
+}
+
+func (c *Client) withCache(ctx context.Context, key string, fetch func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
+	if c.cache == nil {
+		return fetch(ctx)
+	}
+	if b, ok := c.cache.get(key); ok {
+		return json.RawMessage(b), nil
+	}
+	data, err := fetch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.cache.set(key, data)
+	return data, nil
 }
 
 func (c *Client) baseHeaders() http.Header {
@@ -114,9 +138,11 @@ func truncate(s string, n int) string {
 
 // Games returns all games (same as GET /v1/games.json).
 func (c *Client) Games(ctx context.Context) (json.RawMessage, error) {
-	u := c.cfg.RESTBaseURL + "/games.json"
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	return c.withCache(ctx, "nx|games", func(ctx context.Context) (json.RawMessage, error) {
+		u := c.cfg.RESTBaseURL + "/games.json"
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // GameIDForDomain resolves the numeric game id from REST games.json domain_name (e.g. skyrimspecialedition).
@@ -151,9 +177,12 @@ func (c *Client) Mod(ctx context.Context, gameDomain string, modID int64) (json.
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/%d.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|mod|%s|%d", domainCacheKey(gameDomain), modID)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/%d.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModFiles returns file list for a mod.
@@ -162,9 +191,12 @@ func (c *Client) ModFiles(ctx context.Context, gameDomain string, modID int64) (
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/%d/files.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|modfiles|%s|%d", domainCacheKey(gameDomain), modID)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/%d/files.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModChangelog returns changelog entries for a mod (REST).
@@ -173,9 +205,12 @@ func (c *Client) ModChangelog(ctx context.Context, gameDomain string, modID int6
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/%d/changelogs", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|changelog|%s|%d", domainCacheKey(gameDomain), modID)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/%d/changelogs", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID)
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModFile returns metadata for a single mod file by file_id (REST).
@@ -184,9 +219,12 @@ func (c *Client) ModFile(ctx context.Context, gameDomain string, modID, fileID i
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/%d/files/%d", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID, fileID)
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|modfile|%s|%d|%d", domainCacheKey(gameDomain), modID, fileID)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/%d/files/%d", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), modID, fileID)
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // Game returns details for one game by domain (REST), including category tree.
@@ -195,9 +233,12 @@ func (c *Client) Game(ctx context.Context, gameDomain string) (json.RawMessage, 
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|game|%s", domainCacheKey(gameDomain))
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // GameCategories returns only the categories array from GET /games/{domain}.json.
@@ -226,9 +267,12 @@ func (c *Client) ModsLatestUpdated(ctx context.Context, gameDomain string) (json
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/latest_updated.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|latest_updated|%s", domainCacheKey(gameDomain))
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/latest_updated.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModsLatestAdded returns recently added mods for a game (REST).
@@ -237,9 +281,12 @@ func (c *Client) ModsLatestAdded(ctx context.Context, gameDomain string) (json.R
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/latest_added.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|latest_added|%s", domainCacheKey(gameDomain))
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/latest_added.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModsTrending returns trending mods for a game (REST).
@@ -248,9 +295,12 @@ func (c *Client) ModsTrending(ctx context.Context, gameDomain string) (json.RawM
 	if gameDomain == "" {
 		return nil, fmt.Errorf("game_domain is required")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/trending.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|trending|%s", domainCacheKey(gameDomain))
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/trending.json", c.cfg.RESTBaseURL, url.PathEscape(gameDomain))
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // ModsRecentlyUpdated returns mods updated in a server-cached period: 1d, 1w, or 1m (REST).
@@ -263,9 +313,12 @@ func (c *Client) ModsRecentlyUpdated(ctx context.Context, gameDomain, period str
 	if period != "1d" && period != "1w" && period != "1m" {
 		return nil, fmt.Errorf("period must be 1d, 1w, or 1m")
 	}
-	u := fmt.Sprintf("%s/games/%s/mods/updated.json?period=%s", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), url.QueryEscape(period))
-	data, _, err := c.getJSON(ctx, u)
-	return data, err
+	key := fmt.Sprintf("nx|recently_updated|%s|%s", domainCacheKey(gameDomain), period)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		u := fmt.Sprintf("%s/games/%s/mods/updated.json?period=%s", c.cfg.RESTBaseURL, url.PathEscape(gameDomain), url.QueryEscape(period))
+		data, _, err := c.getJSON(ctx, u)
+		return data, err
+	})
 }
 
 // TrackedMods returns mods tracked by the API key owner (REST).
@@ -366,10 +419,6 @@ func (c *Client) SearchMods(ctx context.Context, gameDomain, query, author, cate
 // ModRequirements returns GraphQL mod.modRequirements: mods this one requires (nexusRequirements),
 // mods that require this one (modsRequiringThisMod), and DLC requirements.
 func (c *Client) ModRequirements(ctx context.Context, gameDomain string, modID int64, reqOff, reqCount, depOff, depCount int) (json.RawMessage, error) {
-	gid, err := c.GameIDForDomain(ctx, gameDomain)
-	if err != nil {
-		return nil, err
-	}
 	if reqOff < 0 {
 		reqOff = 0
 	}
@@ -379,7 +428,13 @@ func (c *Client) ModRequirements(ctx context.Context, gameDomain string, modID i
 	reqCount = pageCountOrDefault(reqCount)
 	depCount = pageCountOrDefault(depCount)
 
-	gqlQuery := `query ModRequirements($modId: ID!, $gameId: ID!, $reqOff: Int!, $reqCnt: Int!, $depOff: Int!, $depCnt: Int!) {
+	key := fmt.Sprintf("nx|modreq|%s|%d|%d|%d|%d|%d", domainCacheKey(gameDomain), modID, reqOff, reqCount, depOff, depCount)
+	return c.withCache(ctx, key, func(ctx context.Context) (json.RawMessage, error) {
+		gid, err := c.GameIDForDomain(ctx, gameDomain)
+		if err != nil {
+			return nil, err
+		}
+		gqlQuery := `query ModRequirements($modId: ID!, $gameId: ID!, $reqOff: Int!, $reqCnt: Int!, $depOff: Int!, $depCnt: Int!) {
   mod(modId: $modId, gameId: $gameId) {
     modId
     name
@@ -411,15 +466,16 @@ func (c *Client) ModRequirements(ctx context.Context, gameDomain string, modID i
     }
   }
 }`
-	variables := map[string]any{
-		"modId":  strconv.FormatInt(modID, 10),
-		"gameId": strconv.FormatInt(gid, 10),
-		"reqOff": reqOff,
-		"reqCnt": reqCount,
-		"depOff": depOff,
-		"depCnt": depCount,
-	}
-	return c.postGraphQL(ctx, gqlQuery, variables)
+		variables := map[string]any{
+			"modId":  strconv.FormatInt(modID, 10),
+			"gameId": strconv.FormatInt(gid, 10),
+			"reqOff": reqOff,
+			"reqCnt": reqCount,
+			"depOff": depOff,
+			"depCnt": depCount,
+		}
+		return c.postGraphQL(ctx, gqlQuery, variables)
+	})
 }
 
 // ModGraphQL returns selected GraphQL mod fields including viewer* flags (requires same API key as other calls).
