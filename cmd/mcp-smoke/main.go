@@ -135,7 +135,7 @@ func main() {
 		"nexus_games", "nexus_search_mods", "nexus_get_mod", "nexus_list_mod_files", "nexus_get_mod_requirements",
 		"nexus_get_mod_changelog", "nexus_get_mod_file", "nexus_get_game", "nexus_game_categories",
 		"nexus_mods_latest_updated", "nexus_mods_latest_added", "nexus_mods_trending", "nexus_mods_recently_updated",
-		"nexus_get_tracked_mods", "nexus_get_mod_graphql", "nexus_get_rate_limits",
+		"nexus_get_tracked_mods", "nexus_get_mod_graphql", "nexus_get_rate_limits", "nexus_invalidate_cache",
 	}
 	for _, n := range names {
 		if !bytes.Contains(toolsBody, []byte(n)) {
@@ -259,6 +259,7 @@ func main() {
 		"mod_id":      "62852",
 	})
 	mustToolOK("nexus_get_rate_limits", map[string]any{})
+	mustToolOK("nexus_invalidate_cache", map[string]any{"mode": "all"})
 
 	_ = stdin.Close()
 	_, _ = io.Copy(io.Discard, r)

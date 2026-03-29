@@ -1,6 +1,7 @@
 package nexus
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -53,4 +54,35 @@ func (a *apiCache) set(key string, v []byte) {
 	a.mu.Lock()
 	a.m[key] = cacheItem{b: dup, until: time.Now().Add(a.ttl)}
 	a.mu.Unlock()
+}
+
+// clearAll removes every entry. Returns the number of entries removed.
+func (a *apiCache) clearAll() int {
+	if a == nil {
+		return 0
+	}
+	a.mu.Lock()
+	n := len(a.m)
+	a.m = make(map[string]cacheItem)
+	a.mu.Unlock()
+	return n
+}
+
+// deletePrefix removes keys that start with prefix. Returns how many were removed.
+func (a *apiCache) deletePrefix(prefix string) int {
+	if a == nil || prefix == "" {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var del []string
+	for k := range a.m {
+		if strings.HasPrefix(k, prefix) {
+			del = append(del, k)
+		}
+	}
+	for _, k := range del {
+		delete(a.m, k)
+	}
+	return len(del)
 }

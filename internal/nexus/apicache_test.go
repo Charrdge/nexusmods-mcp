@@ -29,6 +29,33 @@ func TestAPICacheExpiry(t *testing.T) {
 	}
 }
 
+func TestAPICacheClearAll(t *testing.T) {
+	c := newAPICache(time.Hour)
+	c.set("a", []byte("1"))
+	c.set("b", []byte("2"))
+	n := c.clearAll()
+	if n != 2 {
+		t.Fatalf("clearAll: want 2 removed, got %d", n)
+	}
+	if _, ok := c.get("a"); ok {
+		t.Fatal("expected key a gone")
+	}
+}
+
+func TestAPICacheDeletePrefix(t *testing.T) {
+	c := newAPICache(time.Hour)
+	c.set("nx|mod|g|1", []byte("1"))
+	c.set("nx|mod|g|2", []byte("2"))
+	c.set("nx|games", []byte("3"))
+	n := c.deletePrefix("nx|mod|")
+	if n != 2 {
+		t.Fatalf("deletePrefix: want 2 removed, got %d", n)
+	}
+	if _, ok := c.get("nx|games"); !ok {
+		t.Fatal("nx|games should remain")
+	}
+}
+
 func TestParseCacheTTL(t *testing.T) {
 	tests := []struct {
 		in      string

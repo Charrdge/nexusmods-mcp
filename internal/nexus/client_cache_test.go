@@ -130,3 +130,80 @@ func TestClientSearchModsNeverUsesResponseCache(t *testing.T) {
 		t.Fatalf("SearchMods should not cache; expected 2 GraphQL POSTs, got %d", calls.Load())
 	}
 }
+
+func TestClientGamesBypassForcesNetworkAndRefills(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/games.json" {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	cl := testClient(srv, time.Hour)
+	ctx := context.Background()
+	_, _ = cl.Games(ctx)
+	_, _ = cl.Games(ctx)
+	if calls.Load() != 1 {
+		t.Fatalf("first two Games: want 1 HTTP call, got %d", calls.Load())
+	}
+	_, _ = cl.Games(WithCacheBypass(ctx, true))
+	if calls.Load() != 2 {
+		t.Fatalf("bypass Games: want 2 HTTP calls total, got %d", calls.Load())
+	}
+	_, _ = cl.Games(ctx)
+	if calls.Load() != 2 {
+		t.Fatalf("after bypass refill, cached read: want 2 HTTP calls total, got %d", calls.Load())
+	}
+}
+
+func TestClientInvalidateCacheAll(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/games.json" {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	cl := testClient(srv, time.Hour)
+	ctx := context.Background()
+	_, _ = cl.Games(ctx)
+	_, _ = cl.Games(ctx)
+	rm := cl.InvalidateCacheAll()
+	if rm != 1 {
+		t.Fatalf("InvalidateCacheAll: want 1 removed, got %d", rm)
+	}
+	_, _ = cl.Games(ctx)
+	if calls.Load() != 2 {
+		t.Fatalf("after invalidate, want 2 HTTP GETs total, got %d", calls.Load())
+	}
+}
+
+func TestClientInvalidateCachePrefixInvalid(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	cl := testClient(srv, time.Hour)
+	_, err := cl.InvalidateCachePrefix("bad")
+	if err == nil {
+		t.Fatal("expected error for prefix without nx|")
+	}
+}
+
+func TestClientInvalidateCacheKindUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	cl := testClient(srv, time.Hour)
+	_, err := cl.InvalidateCacheKind("not_a_kind")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

@@ -12,12 +12,29 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type cacheBypassArg struct {
+	IgnoreCache string `json:"ignore_cache,omitempty" jsonschema:"Optional. If true, 1, or yes: skip reading cache for this call, fetch from Nexus, and refresh the cache entry."`
+}
+
+func parseIgnoreCache(s string) bool {
+	s = strings.TrimSpace(strings.ToLower(s))
+	return s == "true" || s == "1" || s == "yes"
+}
+
+func ctxWithBypass(ctx context.Context, ignore string) context.Context {
+	return nexus.WithCacheBypass(ctx, parseIgnoreCache(ignore))
+}
+
 // Register wires Nexus-backed tools onto the MCP server.
 func Register(server *mcp.Server, nx *nexus.Client) {
+	type gamesArgs struct {
+		cacheBypassArg
+	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "nexus_games",
 		Description: "List all games on Nexus Mods (domain name, id, and metadata). Use this to resolve game_domain for other tools.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gamesArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.Games(ctx)
 		return jsonResult(data, err)
 	})
@@ -55,6 +72,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	})
 
 	type modArgs struct {
+		cacheBypassArg
 		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
 		ModID      string `json:"mod_id" jsonschema:"Numeric Nexus mod id"`
 	}
@@ -62,6 +80,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_get_mod",
 		Description: "Get mod details (REST) for a game domain and mod id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		id, err := nexus.ParseInt(args.ModID, "mod_id")
 		if err != nil {
 			return toolErr(err.Error()), nil, nil
@@ -74,6 +93,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_list_mod_files",
 		Description: "List all files for a mod (REST): archives, versions, categories.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		id, err := nexus.ParseInt(args.ModID, "mod_id")
 		if err != nil {
 			return toolErr(err.Error()), nil, nil
@@ -83,6 +103,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	})
 
 	type modReqArgs struct {
+		cacheBypassArg
 		GameDomain         string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
 		ModID              string `json:"mod_id" jsonschema:"Numeric Nexus mod id"`
 		RequirementsOffset string `json:"requirements_offset,omitempty" jsonschema:"Optional offset for required-mods list (default 0)"`
@@ -94,6 +115,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_get_mod_requirements",
 		Description: "Mod dependencies via GraphQL: mods this mod requires (nexusRequirements), mods that require this mod (modsRequiringThisMod), and DLC requirements. Uses game_domain like other tools; resolves internal game id automatically.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modReqArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		id, err := nexus.ParseInt(args.ModID, "mod_id")
 		if err != nil {
 			return toolErr(err.Error()), nil, nil
@@ -141,6 +163,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	})
 
 	type fileArgs struct {
+		cacheBypassArg
 		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain"`
 		ModID      string `json:"mod_id" jsonschema:"Numeric Nexus mod id"`
 		FileID     string `json:"file_id" jsonschema:"Numeric Nexus file id (from list mod files)"`
@@ -149,6 +172,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_get_mod_changelog",
 		Description: "Changelog history for a mod (REST).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args modArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		id, err := nexus.ParseInt(args.ModID, "mod_id")
 		if err != nil {
 			return toolErr(err.Error()), nil, nil
@@ -160,6 +184,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_get_mod_file",
 		Description: "Metadata for one mod file by file_id (REST); avoids downloading full files list when you already know file_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args fileArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		mid, err := nexus.ParseInt(args.ModID, "mod_id")
 		if err != nil {
 			return toolErr(err.Error()), nil, nil
@@ -173,12 +198,14 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 	})
 
 	type gameDomainArg struct {
+		cacheBypassArg
 		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain, e.g. skyrimspecialedition"`
 	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "nexus_get_game",
 		Description: "Single game record by domain (REST), including category tree and stats.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.Game(ctx, args.GameDomain)
 		return jsonResult(data, err)
 	})
@@ -186,6 +213,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_game_categories",
 		Description: "Category tree for a game (subset of nexus_get_game): {\"categories\":[...]}.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.GameCategories(ctx, args.GameDomain)
 		return jsonResult(data, err)
 	})
@@ -194,6 +222,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_mods_latest_updated",
 		Description: "Latest updated mods for a game (REST feed).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.ModsLatestUpdated(ctx, args.GameDomain)
 		return jsonResult(data, err)
 	})
@@ -201,6 +230,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_mods_latest_added",
 		Description: "Latest added mods for a game (REST feed).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.ModsLatestAdded(ctx, args.GameDomain)
 		return jsonResult(data, err)
 	})
@@ -208,11 +238,13 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_mods_trending",
 		Description: "Trending mods for a game (REST feed).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args gameDomainArg) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.ModsTrending(ctx, args.GameDomain)
 		return jsonResult(data, err)
 	})
 
 	type recentArgs struct {
+		cacheBypassArg
 		GameDomain string `json:"game_domain" jsonschema:"Nexus game domain"`
 		Period     string `json:"period" jsonschema:"One of: 1d, 1w, 1m (server-cached update windows)"`
 	}
@@ -220,6 +252,7 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		Name:        "nexus_mods_recently_updated",
 		Description: "Mods updated in a cached time window for a game (REST): period 1d, 1w, or 1m.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args recentArgs) (*mcp.CallToolResult, any, error) {
+		ctx = ctxWithBypass(ctx, args.IgnoreCache)
 		data, err := nx.ModsRecentlyUpdated(ctx, args.GameDomain, args.Period)
 		return jsonResult(data, err)
 	})
@@ -251,6 +284,59 @@ func Register(server *mcp.Server, nx *nexus.Client) {
 		data, err := nx.RateLimitHeaders(ctx)
 		return jsonResult(data, err)
 	})
+
+	type invalidateCacheArgs struct {
+		Mode   string `json:"mode" jsonschema:"One of: all, prefix, kind"`
+		Prefix string `json:"prefix,omitempty" jsonschema:"When mode=prefix: cache key prefix starting with nx|"`
+		Kind   string `json:"kind,omitempty" jsonschema:"When mode=kind: games, game, mod, modfiles, modfile, changelog, feeds, modreq, mod_requirements"`
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "nexus_invalidate_cache",
+		Description: "Clear in-memory Nexus response cache for this MCP process only. mode=all drops everything; mode=prefix uses nx|... prefix; mode=kind uses logical groups (games, game, mod, modfiles, modfile, changelog, feeds, modreq).",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, args invalidateCacheArgs) (*mcp.CallToolResult, any, error) {
+		mode := strings.ToLower(strings.TrimSpace(args.Mode))
+		out := map[string]any{"mode": mode}
+		if !nx.CacheEnabled() {
+			out["removed"] = 0
+			out["note"] = "response cache is disabled (NEXUSMODS_CACHE_TTL off or zero)"
+			return jsonRawMessageResult(out)
+		}
+		var n int
+		var err error
+		switch mode {
+		case "all":
+			n = nx.InvalidateCacheAll()
+		case "prefix":
+			if strings.TrimSpace(args.Prefix) == "" {
+				return toolErr("prefix is required when mode=prefix"), nil, nil
+			}
+			out["prefix"] = strings.TrimSpace(args.Prefix)
+			n, err = nx.InvalidateCachePrefix(args.Prefix)
+		case "kind":
+			if strings.TrimSpace(args.Kind) == "" {
+				return toolErr("kind is required when mode=kind"), nil, nil
+			}
+			out["kind"] = strings.TrimSpace(args.Kind)
+			n, err = nx.InvalidateCacheKind(args.Kind)
+		default:
+			return toolErr("mode must be all, prefix, or kind"), nil, nil
+		}
+		if err != nil {
+			return toolErr(err.Error()), nil, nil
+		}
+		out["removed"] = n
+		return jsonRawMessageResult(out)
+	})
+}
+
+func jsonRawMessageResult(v map[string]any) (*mcp.CallToolResult, any, error) {
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return toolErr(err.Error()), nil, nil
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}},
+	}, nil, nil
 }
 
 func toolErr(msg string) *mcp.CallToolResult {

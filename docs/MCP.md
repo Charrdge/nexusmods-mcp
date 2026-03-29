@@ -37,7 +37,7 @@ go build -o nexusmods-mcp ./cmd/server
 
 По умолчанию ответы Nexus кешируются **в памяти процесса** с TTL из `NEXUSMODS_CACHE_TTL` (по умолчанию **24 часа**). Это снижает число запросов к API и нагрузку на лимиты; данные могут отставать от сайта до истечения TTL.
 
-Реализация: [`internal/nexus/apicache.go`](../internal/nexus/apicache.go), обвязка в [`internal/nexus/client.go`](../internal/nexus/client.go).
+Реализация: [`apicache.go`](../internal/nexus/apicache.go), [`client.go`](../internal/nexus/client.go), [`cachectx.go`](../internal/nexus/cachectx.go), [`cacheinvalidate.go`](../internal/nexus/cacheinvalidate.go), [`cachekeys.go`](../internal/nexus/cachekeys.go).
 
 | Кешируется (TTL) | Не кешируется |
 |------------------|---------------|
@@ -46,6 +46,12 @@ go build -o nexusmods-mcp ./cmd/server
 Отключить кеш: `NEXUSMODS_CACHE_TTL=0` или `off` / `false` / `disable` (см. [`config.go`](../internal/nexus/config.go)). У нескольких процессов (несколько инстансов HTTP-транспорта) у каждого свой кеш.
 
 Автотесты без сети: `go test ./internal/nexus/ -count=1` (в т.ч. [`client_cache_test.go`](../internal/nexus/client_cache_test.go)).
+
+### Сброс кеша и `ignore_cache`
+
+- **`nexus_invalidate_cache`** — очистка кеша **только в текущем процессе** MCP. Аргумент `mode`: `all` (всё), `prefix` (нужен `prefix`, строка с `nx|…`, как внутренние ключи), `kind` (нужен `kind` — логическая группа). Ответ JSON: `removed`, `mode`, при выключенном кеше — `note`.
+- Значения **`kind`**: `games`, `game`, `mod`, `modfiles`, `modfile`, `changelog`, `feeds` (все ленты: latest_updated, latest_added, trending, recently_updated), `modreq` или `mod_requirements` (GraphQL зависимости). См. [`cachekeys.go`](../internal/nexus/cachekeys.go).
+- У кешируемых tools (не поиск, не tracked/graphql/rate_limits) можно передать **`ignore_cache`**: `true`, `1` или `yes` — один запрос идёт на Nexus и **обновляет** запись в кеше (чтение кеша пропускается). Реализация: [`cachectx.go`](../internal/nexus/cachectx.go).
 
 ## Соответствие API Nexus
 
@@ -173,6 +179,20 @@ Changelog мода (REST).
 
 Лёгкий `GET .../games.json` и возврат заголовков `x-rl-*` в JSON (для отладки квот).
 
+### `nexus_invalidate_cache`
+
+Сброс in-memory кеша ответов Nexus в этом процессе.
+
+| Аргумент MCP | Обязательный | Описание |
+|--------------|--------------|----------|
+| `mode` | да | `all`, `prefix` или `kind` |
+| `prefix` | если `mode=prefix` | Префикс ключа, обязан начинаться с `nx|` |
+| `kind` | если `mode=kind` | См. список `kind` в разделе кеширования выше |
+
+### `ignore_cache` (опционально)
+
+Для tools, которые используют кеш (например `nexus_games`, `nexus_get_mod`, `nexus_list_mod_files`, …): передать `ignore_cache`: `true` / `1` / `yes`, чтобы принудительно запросить API и обновить кеш.
+
 ## Ограничения и типичные ошибки
 
 - **`NEXUSMODS_API_KEY is required`** — ключ не передан в окружение процесса (Docker / IDE).
@@ -184,6 +204,8 @@ Changelog мода (REST).
 - **GraphQL `Mod not found` в JSON** — неверная пара игра/мод или `mod_id`; для `mod(...)` числовой `gameId` подставляется по `game_domain`.
 - **Docker без `-i`** — клиент не сможет вести stdio-сессию MCP.
 - **HTTP-режим** — клиент должен поддерживать streamable HTTP; публичный порт без защиты не использовать.
+- **Список tools в IDE не совпадает с документацией** (например нет `nexus_invalidate_cache`) — клиент показывает то, что вернул `tools/list` **текущего** процесса. После `git pull` или смены ветки **пересобери** образ (`docker build -t nexus-mcp:local .`) или бинарь (`go build -o nexusmods-mcp ./cmd/server`) и **перезапусти** MCP; одного включения/выключения сервера в настройках недостаточно, если не обновился артефакт.
+- **Имена tools с пробелами в UI** — в протоколе остаются с подчёркиваниями (`nexus_get_game`); отображение «nexus get game» — форматирование клиента.
 
 ## Подключение клиентов
 
@@ -191,6 +213,7 @@ Changelog мода (REST).
 
 - С ключом в аргументах `docker`: готовый фрагмент — [`cursor-mcp.json.example`](../cursor-mcp.json.example).
 - Без ключа в JSON: `--env-file` и **абсолютный** путь к `.env`, который видит Docker — [`cursor-mcp-envfile.example.json`](../cursor-mcp-envfile.example.json).
+- После обновления репозитория снова выполни `docker build -t nexus-mcp:local .` (если в конфиге этот образ) или укажи путь к свежесобранному бинарю; затем Reload Window или переподключи MCP.
 
 Пути в WSL: например `/home/<user>/nexusmods-mcp/.env`. На Windows с Docker Desktop проверь тот же `docker run ... --env-file`, что использует Cursor.
 

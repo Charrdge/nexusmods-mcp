@@ -55,8 +55,10 @@ func (c *Client) withCache(ctx context.Context, key string, fetch func(context.C
 	if c.cache == nil {
 		return fetch(ctx)
 	}
-	if b, ok := c.cache.get(key); ok {
-		return json.RawMessage(b), nil
+	if !cacheBypassFrom(ctx) {
+		if b, ok := c.cache.get(key); ok {
+			return json.RawMessage(b), nil
+		}
 	}
 	data, err := fetch(ctx)
 	if err != nil {
